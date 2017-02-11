@@ -195,6 +195,12 @@ impl Nvc {
         }
     }
 
+    fn set_reg_gpr_and_zero_sign_flags(&mut self, index: usize, value: u32) {
+        self.set_reg_gpr(index, value);
+        let reg_value = self.reg_gpr(index);
+        self.set_zero_sign_flags(reg_value);
+    }
+
     // TODO: Come up with a more portable way to do this conversion
     fn reg_gpr_float(&self, index: usize) -> f32 {
         unsafe {
@@ -212,6 +218,12 @@ impl Nvc {
                 *reg_float_ptr = value;
             }
         }
+    }
+
+    fn set_reg_gpr_float_and_fp_flags(&mut self, index: usize, value: f32) {
+        self.set_reg_gpr_float(index, value);
+        let reg_value = self.reg_gpr_float(index);
+        self.set_fp_flags(reg_value);
     }
 
     pub fn reg_eipc(&self) -> u32 {
@@ -365,35 +377,30 @@ impl Nvc {
                 OPCODE_BITS_SUB => format_i!(|reg1, reg2| {
                     let lhs = self.reg_gpr(reg2);
                     let rhs = self.reg_gpr(reg1);
-                    let res = self.sub_and_set_flags(lhs, rhs);
-                    self.set_reg_gpr(reg2, res);
+                    let res = self.sub_and_set_ov_cy(lhs, rhs);
+                    self.set_reg_gpr_and_zero_sign_flags(reg2, res);
                 }),
                 OPCODE_BITS_CMP_REG => format_i!(|reg1, reg2| {
                     let lhs = self.reg_gpr(reg2);
                     let rhs = self.reg_gpr(reg1);
-                    self.sub_and_set_flags(lhs, rhs);
+                    let res = self.sub_and_set_ov_cy(lhs, rhs);
+                    self.set_zero_sign_flags(res);
                 }),
                 OPCODE_BITS_SHL_REG => format_i!(|reg1, reg2| {
-                    let lhs = self.reg_gpr(reg2);
                     let rhs = self.reg_gpr(reg1);
-                    let res = self.shl_and_set_flags(lhs, rhs);
-                    self.set_reg_gpr(reg2, res);
+                    self.shl(rhs, reg2);
                 }),
                 OPCODE_BITS_SHR_REG => format_i!(|reg1, reg2| {
-                    let lhs = self.reg_gpr(reg2);
                     let rhs = self.reg_gpr(reg1);
-                    let res = self.shr_and_set_flags(lhs, rhs);
-                    self.set_reg_gpr(reg2, res);
+                    self.shr(rhs, reg2);
                 }),
                 OPCODE_BITS_JMP => format_i!(|reg1, _| {
                     next_pc = self.reg_gpr(reg1) & 0xfffffffe;
                     num_cycles = 3;
                 }),
                 OPCODE_BITS_SAR_REG => format_i!(|reg1, reg2| {
-                    let lhs = self.reg_gpr(reg2);
                     let rhs = self.reg_gpr(reg1);
-                    let res = self.sar_and_set_flags(lhs, rhs);
-                    self.set_reg_gpr(reg2, res);
+                    self.sar(rhs, reg2);
                 }),
                 OPCODE_BITS_MUL => format_i!(|reg1, reg2| {
                     let lhs = self.reg_gpr(reg2) as i64;
@@ -403,8 +410,7 @@ impl Nvc {
                     let res_high = (res >> 32) as u32;
                     let overflow = res != ((res_low as i32) as u64);
                     self.set_reg_gpr(30, res_high);
-                    self.set_reg_gpr(reg2, res_low);
-                    self.set_zero_sign_flags(res_low);
+                    self.set_reg_gpr_and_zero_sign_flags(reg2, res_low);
                     self.psw_overflow = overflow;
                     num_cycles = 13;
                 }),
@@ -421,8 +427,7 @@ impl Nvc {
                         (res, r30, false)
                     };
                     self.set_reg_gpr(30, r30);
-                    self.set_reg_gpr(reg2, res);
-                    self.set_zero_sign_flags(res);
+                    self.set_reg_gpr_and_zero_sign_flags(reg2, res);
                     self.psw_overflow = overflow;
                     num_cycles = 38;
                 }),
@@ -434,8 +439,7 @@ impl Nvc {
                     let res_high = (res >> 32) as u32;
                     let overflow = res != (res_low as u64);
                     self.set_reg_gpr(30, res_high);
-                    self.set_reg_gpr(reg2, res_low);
-                    self.set_zero_sign_flags(res_low);
+                    self.set_reg_gpr_and_zero_sign_flags(reg2, res_low);
                     self.psw_overflow = overflow;
                     num_cycles = 13;
                 }),
@@ -445,8 +449,7 @@ impl Nvc {
                     let res = lhs / rhs;
                     let r30 = lhs % rhs;
                     self.set_reg_gpr(30, r30);
-                    self.set_reg_gpr(reg2, res);
-                    self.set_zero_sign_flags(res);
+                    self.set_reg_gpr_and_zero_sign_flags(reg2, res);
                     self.psw_overflow = false;
                     num_cycles = 36;
                 }),
@@ -454,30 +457,26 @@ impl Nvc {
                     let lhs = self.reg_gpr(reg2);
                     let rhs = self.reg_gpr(reg1);
                     let res = lhs | rhs;
-                    self.set_reg_gpr(reg2, res);
-                    self.set_zero_sign_flags(res);
+                    self.set_reg_gpr_and_zero_sign_flags(reg2, res);
                     self.psw_overflow = false;
                 }),
                 OPCODE_BITS_AND => format_i!(|reg1, reg2| {
                     let lhs = self.reg_gpr(reg2);
                     let rhs = self.reg_gpr(reg1);
                     let res = lhs & rhs;
-                    self.set_reg_gpr(reg2, res);
-                    self.set_zero_sign_flags(res);
+                    self.set_reg_gpr_and_zero_sign_flags(reg2, res);
                     self.psw_overflow = false;
                 }),
                 OPCODE_BITS_XOR => format_i!(|reg1, reg2| {
                     let lhs = self.reg_gpr(reg2);
                     let rhs = self.reg_gpr(reg1);
                     let res = lhs ^ rhs;
-                    self.set_reg_gpr(reg2, res);
-                    self.set_zero_sign_flags(res);
+                    self.set_reg_gpr_and_zero_sign_flags(reg2, res);
                     self.psw_overflow = false;
                 }),
                 OPCODE_BITS_NOT => format_i!(|reg1, reg2| {
                     let res = !self.reg_gpr(reg1);
-                    self.set_reg_gpr(reg2, res);
-                    self.set_zero_sign_flags(res);
+                    self.set_reg_gpr_and_zero_sign_flags(reg2, res);
                     self.psw_overflow = false;
                 }),
                 OPCODE_BITS_MOV_IMM => format_ii!(|imm5, reg2| {
@@ -514,19 +513,16 @@ impl Nvc {
                 OPCODE_BITS_CMP_IMM => format_ii!(|imm5, reg2| {
                     let lhs = self.reg_gpr(reg2);
                     let rhs = sign_extend_imm5(imm5);
-                    self.sub_and_set_flags(lhs, rhs);
+                    let res = self.sub_and_set_ov_cy(lhs, rhs);
+                    self.set_zero_sign_flags(res);
                 }),
                 OPCODE_BITS_SHL_IMM => format_ii!(|imm5, reg2| {
-                    let lhs = self.reg_gpr(reg2);
                     let rhs = imm5 as u32;
-                    let res = self.shl_and_set_flags(lhs, rhs);
-                    self.set_reg_gpr(reg2, res);
+                    self.shl(rhs, reg2);
                 }),
                 OPCODE_BITS_SHR_IMM => format_ii!(|imm5, reg2| {
-                    let lhs = self.reg_gpr(reg2);
-                    let rhs = sign_extend_imm5(imm5);
-                    let res = self.shr_and_set_flags(lhs, rhs);
-                    self.set_reg_gpr(reg2, res);
+                    let rhs = imm5 as u32;
+                    self.shr(rhs, reg2);
                 }),
                 OPCODE_BITS_CLI => format_ii!(|_, _| {
                     self.psw_interrupt_disable = false;
@@ -534,10 +530,8 @@ impl Nvc {
                     num_cycles = 12;
                 }),
                 OPCODE_BITS_SAR_IMM => format_ii!(|imm5, reg2| {
-                    let lhs = self.reg_gpr(reg2);
                     let rhs = imm5 as u32;
-                    let res = self.sar_and_set_flags(lhs, rhs);
-                    self.set_reg_gpr(reg2, res);
+                    self.sar(rhs, reg2);
                 }),
                 OPCODE_BITS_RETI => format_ii!(|_, _| {
                     next_pc = self.return_from_exception();
@@ -646,24 +640,21 @@ impl Nvc {
                     let lhs = self.reg_gpr(reg1);
                     let rhs = imm16 as u32;
                     let res = lhs | rhs;
-                    self.set_reg_gpr(reg2, res);
-                    self.set_zero_sign_flags(res);
+                    self.set_reg_gpr_and_zero_sign_flags(reg2, res);
                     self.psw_overflow = false;
                 }),
                 OPCODE_BITS_AND_I => format_v!(|reg1, reg2, imm16| {
                     let lhs = self.reg_gpr(reg1);
                     let rhs = imm16 as u32;
                     let res = lhs & rhs;
-                    self.set_reg_gpr(reg2, res);
-                    self.set_zero_sign_flags(res);
+                    self.set_reg_gpr_and_zero_sign_flags(reg2, res);
                     self.psw_overflow = false;
                 }),
                 OPCODE_BITS_XOR_I => format_v!(|reg1, reg2, imm16| {
                     let lhs = self.reg_gpr(reg1);
                     let rhs = imm16 as u32;
                     let res = lhs ^ rhs;
-                    self.set_reg_gpr(reg2, res);
-                    self.set_zero_sign_flags(res);
+                    self.set_reg_gpr_and_zero_sign_flags(reg2, res);
                     self.psw_overflow = false;
                 }),
                 OPCODE_BITS_MOVHI => format_v!(|reg1, reg2, imm16| {
@@ -755,18 +746,15 @@ impl Nvc {
                         }
                         OPCODE_BITS_SUB_OP_CVT_WS => {
                             let value = (self.reg_gpr(reg1) as i32) as f32;
-                            self.set_reg_gpr_float(reg2, value);
-
-                            self.set_fp_flags(value);
+                            self.set_reg_gpr_float_and_fp_flags(reg2, value);
 
                             num_cycles = 16;
                         }
                         OPCODE_BITS_SUB_OP_CVT_SW => {
                             let value = (self.reg_gpr_float(reg1).round() as i32) as u32;
-                            self.set_reg_gpr(reg2, value);
+                            self.set_reg_gpr_and_zero_sign_flags(reg2, value);
 
                             self.psw_overflow = false;
-                            self.set_zero_sign_flags(value);
 
                             num_cycles = 14;
                         }
@@ -774,9 +762,7 @@ impl Nvc {
                             let lhs = self.reg_gpr_float(reg2);
                             let rhs = self.reg_gpr_float(reg1);
                             let value = lhs + rhs;
-                            self.set_reg_gpr_float(reg2, value);
-
-                            self.set_fp_flags(value);
+                            self.set_reg_gpr_float_and_fp_flags(reg2, value);
 
                             num_cycles = 28;
                         }
@@ -784,9 +770,7 @@ impl Nvc {
                             let lhs = self.reg_gpr_float(reg2);
                             let rhs = self.reg_gpr_float(reg1);
                             let value = lhs - rhs;
-                            self.set_reg_gpr_float(reg2, value);
-
-                            self.set_fp_flags(value);
+                            self.set_reg_gpr_float_and_fp_flags(reg2, value);
 
                             num_cycles = 28;
                         }
@@ -794,9 +778,7 @@ impl Nvc {
                             let lhs = self.reg_gpr_float(reg2);
                             let rhs = self.reg_gpr_float(reg1);
                             let value = lhs * rhs;
-                            self.set_reg_gpr_float(reg2, value);
-
-                            self.set_fp_flags(value);
+                            self.set_reg_gpr_float_and_fp_flags(reg2, value);
 
                             num_cycles = 30;
                         }
@@ -804,9 +786,7 @@ impl Nvc {
                             let lhs = self.reg_gpr_float(reg2);
                             let rhs = self.reg_gpr_float(reg1);
                             let value = lhs / rhs;
-                            self.set_reg_gpr_float(reg2, value);
-
-                            self.set_fp_flags(value);
+                            self.set_reg_gpr_float_and_fp_flags(reg2, value);
 
                             num_cycles = 44;
                         }
@@ -834,10 +814,9 @@ impl Nvc {
                         }
                         OPCODE_BITS_SUB_OP_TRNC_SW => {
                             let value = (self.reg_gpr_float(reg1).trunc() as i32) as u32;
-                            self.set_reg_gpr(reg2, value);
+                            self.set_reg_gpr_and_zero_sign_flags(reg2, value);
 
                             self.psw_overflow = false;
-                            self.set_zero_sign_flags(value);
 
                             num_cycles = 14;
                         }
@@ -867,21 +846,20 @@ impl Nvc {
 
     fn add(&mut self, lhs: u32, rhs: u32, reg2: usize) {
         let (res, carry) = lhs.overflowing_add(rhs);
-        self.set_reg_gpr(reg2, res);
-        self.set_zero_sign_flags(res);
+        self.set_reg_gpr_and_zero_sign_flags(reg2, res);
         self.psw_overflow = ((!(lhs ^ rhs) & (rhs ^ res)) & 0x80000000) != 0;
         self.psw_carry = carry;
     }
 
-    fn sub_and_set_flags(&mut self, lhs: u32, rhs: u32) -> u32 {
+    fn sub_and_set_ov_cy(&mut self, lhs: u32, rhs: u32) -> u32 {
         let (res, carry) = lhs.overflowing_sub(rhs);
-        self.set_zero_sign_flags(res);
         self.psw_overflow = (((lhs ^ rhs) & !(rhs ^ res)) & 0x80000000) != 0;
         self.psw_carry = carry;
         res
     }
 
-    fn shl_and_set_flags(&mut self, lhs: u32, rhs: u32) -> u32 {
+    fn shl(&mut self, rhs: u32, reg2: usize) {
+        let lhs = self.reg_gpr(reg2);
         let mut res = lhs;
         let mut carry = false;
         let shift = (rhs as usize) & 0x1f;
@@ -889,13 +867,13 @@ impl Nvc {
             carry = (res & 0x80000000) != 0;
             res = res.wrapping_shl(1);
         }
-        self.set_zero_sign_flags(res);
         self.psw_overflow = false;
         self.psw_carry = carry;
-        res
+        self.set_reg_gpr_and_zero_sign_flags(reg2, res);
     }
 
-    fn shr_and_set_flags(&mut self, lhs: u32, rhs: u32) -> u32 {
+    fn shr(&mut self, rhs: u32, reg2: usize) {
+        let lhs = self.reg_gpr(reg2);
         let mut res = lhs;
         let mut carry = false;
         let shift = (rhs as usize) & 0x1f;
@@ -903,13 +881,13 @@ impl Nvc {
             carry = (res & 0x00000001) != 0;
             res = res.wrapping_shr(1);
         }
-        self.set_zero_sign_flags(res);
         self.psw_overflow = false;
         self.psw_carry = carry;
-        res
+        self.set_reg_gpr_and_zero_sign_flags(reg2, res);
     }
 
-    fn sar_and_set_flags(&mut self, lhs: u32, rhs: u32) -> u32 {
+    fn sar(&mut self, rhs: u32, reg2: usize) {
+        let lhs = self.reg_gpr(reg2);
         let mut res = lhs;
         let mut carry = false;
         let shift = (rhs as usize) & 0x1f;
@@ -918,10 +896,9 @@ impl Nvc {
             carry = (res & 0x00000001) != 0;
             res = sign | res.wrapping_shr(1);
         }
-        self.set_zero_sign_flags(res);
         self.psw_overflow = false;
         self.psw_carry = carry;
-        res
+        self.set_reg_gpr_and_zero_sign_flags(reg2, res);
     }
 
     fn set_zero_sign_flags(&mut self, value: u32) {
