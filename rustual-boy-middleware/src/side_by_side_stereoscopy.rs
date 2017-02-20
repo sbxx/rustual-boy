@@ -37,16 +37,19 @@ impl<T: Sink<ColorFrame>> Sink<VideoFrame> for SideBySideStereoscopy<T> {
             {
                 let o_ptr = output.as_mut_ptr();
 
-                for y in 0..(224 as isize) {
-                    for x in 0..(384 as isize) {
-                        let col = *(r_buffer.offset(x + y * 384 * 2));
+                let half_diplay_resolution_x = (DISPLAY_RESOLUTION_X / 2) as isize;
+                for y in 0..(DISPLAY_RESOLUTION_Y as isize) {
+                    // left side
+                    for x in 0..(half_diplay_resolution_x as isize) {
+                        let col = *(r_buffer.offset(x + y * DISPLAY_RESOLUTION_X as isize));
                         let col: Color = (col, col, col).into();
-                        *(o_ptr.offset(x + y * 384 * 2)) = col;
+                        *(o_ptr.offset(x + y * DISPLAY_RESOLUTION_X as isize)) = col;
                     }
-                    for x in 0..(384 as isize) {
-                        let col = *(l_buffer.offset((x + y * 384 * 2)));
+                    // right side
+                    for x in 0..(half_diplay_resolution_x as isize) {
+                        let col = *(l_buffer.offset((x + y * DISPLAY_RESOLUTION_X as isize)));
                         let col: Color = (col, col, col).into();
-                        *(o_ptr.offset((x + 384) + y * 384 * 2)) = col;
+                        *(o_ptr.offset((x + half_diplay_resolution_x) + y * DISPLAY_RESOLUTION_X as isize)) = col;
                     }
                 }
                 
